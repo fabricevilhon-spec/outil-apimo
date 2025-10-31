@@ -9,7 +9,7 @@ import pandas as pd
 # --- CONFIGURATION ET NUMÉRO DE VERSION ---
 APP_VERSION = "v1.3.1" # On incrémente la version pour refléter la correction
 FTP_HOST = "ftp.figarocms.fr"
-FTP_USER = "fvilhon"
+FTP_USER = "apimo-auto-fab"
 
 # --- LOGIQUE MÉTIER ---
 
