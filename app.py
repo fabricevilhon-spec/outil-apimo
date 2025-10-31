@@ -8,7 +8,7 @@ import pandas as pd
 
 # --- CONFIGURATION ---
 FTP_HOST = "ftp.figarocms.fr"
-FTP_USER = "fvilhon"
+FTP_USER = "apimo-auto-fab"
 
 # --- LOGIQUE MÉTIER (Nos fonctions sont presque inchangées) ---
 
