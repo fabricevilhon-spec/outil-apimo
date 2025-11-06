@@ -180,7 +180,7 @@ st.title("Outil de gestion des flux Apimo")
 col1, col2 = st.columns(2)
 with col1:
     action = st.radio("Choisissez une action :", ('Ajouter', 'Supprimer', 'Vérifier', 'Modifier'))
-    agency_id = st.text_input("Agency ID :")
+    agency_id_input = st.text_input("Agency ID :") # MODIFIÉ
     ftp_password = st.text_input("Mot de passe FTP :", type="password")
 with col2:
     site_choice = st.radio("Site(s) concerné(s) :", ('Figaro Immobilier', 'Propriétés Le Figaro', 'Les deux'))
@@ -188,6 +188,7 @@ with col2:
     contact_mode = st.selectbox("Mode de contact :", options=list(contact_mode_options.keys()), help="Pour l'ajout ou la modification, définit la nouvelle valeur.")
 
 if st.button("Exécuter"):
+    agency_id = agency_id_input.strip() # AJOUTÉ: Nettoie les espaces avant et après
     if not agency_id or not ftp_password:
         st.error("L'Agency ID et le Mot de passe sont obligatoires.")
     else:
@@ -198,7 +199,6 @@ if st.button("Exécuter"):
             if ftp:
                 st.success("Connexion réussie.")
                 
-                # --- MODIFICATION : AJOUT DU DICTIONNAIRE DE TRADUCTION ---
                 site_display_names = {
                     'figaro': 'Figaro Immobilier',
                     'proprietes': 'Propriétés Le Figaro'
@@ -212,7 +212,6 @@ if st.button("Exécuter"):
                 with st.spinner(f"Opération '{action}' en cours..."):
                     if action in ['Ajouter', 'Supprimer', 'Modifier']:
                         for site_code in sites_to_process:
-                            # Utilisation du dictionnaire pour afficher le nom complet
                             display_name = site_display_names.get(site_code, site_code.upper())
                             st.subheader(f"Traitement pour le site : {display_name}")
                             
@@ -244,3 +243,4 @@ if st.button("Exécuter"):
                 ftp.quit()
 
 st.markdown(f"<div style='text-align: center; color: grey; font-size: 0.8em;'>Version {APP_VERSION}</div>", unsafe_allow_html=True)
+
