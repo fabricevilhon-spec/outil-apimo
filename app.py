@@ -4,15 +4,15 @@ import streamlit as st
 import ftplib
 import io
 import traceback
-import pandas as pd
+import pandas as pd # Import conservé bien que non utilisé, pour compatibilité future
 
 # --- CONFIGURATION ET NUMÉRO DE VERSION ---
-APP_VERSION = "v1.5.1" # Ajout de l'affichage des noms complets
+APP_VERSION = "v1.6.0" # Version mise à jour avec la logique de synchronisation Global/Split
 FTP_HOST = "ftp.figarocms.fr"
 FTP_USER = "apimo-auto-fab"
 
 # --- LOGIQUE MÉTIER ---
-# ... (Toutes les fonctions restent inchangées, nous les laissons ici pour l'exhaustivité) ...
+
 def connect_ftp(host, user, password):
     try:
         ftp = ftplib.FTP_TLS(host, timeout=60)
@@ -24,71 +24,112 @@ def connect_ftp(host, user, password):
         return None
 
 def check_id_for_site(ftp, agency_id, site):
+    """
+    Retourne une liste de tuples (chemin_fichier, mode_contact) où l'ID est trouvé.
+    """
     if site == 'figaro':
         files_to_check = [("All", 'apimo_1.csv'), ("/", 'apimo_11.csv'), ("/", 'apimo_12.csv'), ("/", 'apimo_13.csv')]
     elif site == 'proprietes':
         files_to_check = [("All", 'apimo_3.csv'), ("/", 'apimo_31.csv'), ("/", 'apimo_32.csv'), ("/", 'apimo_33.csv')]
     else:
         return []
-    agency_id_str, found_results = str(agency_id), []
+    
+    agency_id_str = str(agency_id)
+    found_results = []
+    
     for path, filename in files_to_check:
         try:
             ftp.cwd("/")
             if path != "/": ftp.cwd(path)
+            
             r = io.BytesIO()
             ftp.retrbinary(f'RETR {filename}', r.write)
             r.seek(0)
+            
+            # Lecture ligne par ligne pour trouver l'ID
             for line in r.getvalue().decode('utf-8', errors='ignore').splitlines():
                 if line.strip().startswith(agency_id_str + ','):
                     parts = line.strip().split(',')
                     contact_mode = parts[-1] if len(parts) >= 5 else '?'
                     found_results.append((f"{path}/{filename}", contact_mode))
-                    break
-        except Exception: pass
+                    break # On arrête de lire ce fichier si on a trouvé
+        except Exception:
+            pass # Si un fichier n'existe pas, on continue
+            
     return found_results
 
-def ajouter_client(ftp, agency_id, site, contact_mode):
+def ajouter_client(ftp, agency_id, site, contact_mode, add_to_global=True, add_to_split=True):
+    """
+    Ajoute le client.
+    add_to_global : Si True, ajoute au fichier maître (All).
+    add_to_split : Si True, ajoute au fichier esclave le plus léger.
+    """
     if site == 'figaro':
         login, global_file, prefix, indices = '694', 'apimo_1.csv', 'apimo_1', ['1', '2', '3']
     elif site == 'proprietes':
         login, global_file, prefix, indices = '421', 'apimo_3.csv', 'apimo_3', ['1', '2', '3']
     else:
         st.error("Site non valide."); return
+
+    # Le hash est codé en dur comme demandé
     new_line_record = f"{agency_id},{login},df93c3658a012b239ff59ccee0536f592d0c54b7,agency,{contact_mode}"
     path_global, path_split = "All", "/"
+
+    # Fonction utilitaire interne pour écrire
     def append_content_robust(ftp_path, ftp_filename, new_record):
         ftp.cwd("/")
         if ftp_path != "/": ftp.cwd(ftp_path)
+        
         lines = []
         try:
             content_in_memory = io.BytesIO()
             ftp.retrbinary(f'RETR {ftp_filename}', content_in_memory.write)
             lines = [line for line in content_in_memory.getvalue().decode('utf-8', errors='ignore').splitlines() if line.strip()]
-        except ftplib.error_perm: pass
+        except ftplib.error_perm:
+            pass # Le fichier n'existe peut-être pas encore, on le crée
+            
         lines.append(new_record)
         new_content = "\n".join(lines)
+        
         content_to_upload = io.BytesIO(new_content.encode('utf-8'))
         ftp.cwd("/")
         if ftp_path != "/": ftp.cwd(ftp_path)
         ftp.storbinary(f'STOR {ftp_filename}', content_to_upload)
         st.info(f"Fichier mis à jour : {ftp_path}/{ftp_filename}")
-    append_content_robust(path_global, global_file, new_line_record)
-    st.info(f"Analyse des fichiers scindés pour le site '{site}'...")
-    ftp.cwd(path_split)
-    nlst = ftp.nlst()
-    line_counts = {}
-    for i in indices:
-        filename = f"{prefix}{i}.csv"
-        if filename in nlst:
-            content_in_memory = io.BytesIO()
-            ftp.retrbinary(f'RETR {filename}', content_in_memory.write)
-            num_lines = sum(1 for line in content_in_memory.getvalue().decode('utf-8', errors='ignore').splitlines() if line)
-            line_counts[filename] = num_lines
+
+    # 1. Ajout au fichier GLOBAL
+    if add_to_global:
+        st.write(f"Ajout au fichier Global ({global_file})...")
+        append_content_robust(path_global, global_file, new_line_record)
+    else:
+        st.info(f"Le client est déjà présent dans le fichier Global ({global_file}). Ajout ignoré.")
+
+    # 2. Ajout au fichier SPLIT (Esclave)
+    if add_to_split:
+        st.write(f"Recherche du fichier scindé le plus léger pour le site '{site}'...")
+        ftp.cwd(path_split)
+        nlst = ftp.nlst()
+        line_counts = {}
+        
+        for i in indices:
+            filename = f"{prefix}{i}.csv"
+            if filename in nlst:
+                content_in_memory = io.BytesIO()
+                ftp.retrbinary(f'RETR {filename}', content_in_memory.write)
+                # Compte les lignes non vides
+                num_lines = sum(1 for line in content_in_memory.getvalue().decode('utf-8', errors='ignore').splitlines() if line.strip())
+                line_counts[filename] = num_lines
+            else:
+                line_counts[filename] = 0
+        
+        if line_counts:
+            smallest_file = min(line_counts, key=line_counts.get)
+            st.info(f"Le fichier le plus léger est : {smallest_file} ({line_counts[smallest_file]} lignes). Mise à jour...")
+            append_content_robust(path_split, smallest_file, new_line_record)
         else:
-            line_counts[filename] = 0
-    smallest_file = min(line_counts, key=line_counts.get)
-    st.info(f"Le fichier le plus léger est : {smallest_file} ({line_counts[smallest_file]} lignes). Mise à jour...")
-    append_content_robust(path_split, smallest_file, new_line_record)
+            st.error("Impossible de trouver les fichiers scindés.")
+    else:
+        st.info("Le client est déjà présent dans un des fichiers scindés. Ajout ignoré.")
 
 def supprimer_client(ftp, agency_id, site):
     if site == 'figaro':
@@ -97,27 +138,37 @@ def supprimer_client(ftp, agency_id, site):
         files_to_check = [("All", 'apimo_3.csv'), ("/", 'apimo_31.csv'), ("/", 'apimo_32.csv'), ("/", 'apimo_33.csv')]
     else:
         st.error(f"Site '{site}' non valide pour la suppression."); return
+
     agency_id_str, found = str(agency_id), False
+    
     for path, filename in files_to_check:
         try:
             ftp.cwd("/")
             if path != "/": ftp.cwd(path)
+            
             r = io.BytesIO()
             ftp.retrbinary(f'RETR {filename}', r.write)
             r.seek(0)
+            
             if r.getbuffer().nbytes == 0: continue
+            
             lines = [line.strip() for line in r.getvalue().decode('utf-8', errors='ignore').splitlines() if line.strip()]
             initial_rows = len(lines)
+            
+            # On filtre les lignes qui commencent par l'ID
             lines_filtered = [line for line in lines if not line.startswith(agency_id_str + ',')]
+            
             if len(lines_filtered) < initial_rows:
                 found = True
                 new_content = "\n".join(lines_filtered)
                 content_io = io.BytesIO(new_content.encode('utf-8'))
+                
                 ftp.cwd("/")
                 if path != "/": ftp.cwd(path)
                 ftp.storbinary(f'STOR {filename}', content_io)
                 st.info(f"ID {agency_id_str} supprimé dans {path}/{filename}")
         except Exception: pass
+        
     if not found: st.warning(f"L'ID d'agence {agency_id_str} n'a été trouvé dans aucun fichier du site '{site}'.")
 
 def modifier_client(ftp, agency_id, site, new_contact_mode):
@@ -127,22 +178,29 @@ def modifier_client(ftp, agency_id, site, new_contact_mode):
         files_to_check = [("All", 'apimo_3.csv'), ("/", 'apimo_31.csv'), ("/", 'apimo_32.csv'), ("/", 'apimo_33.csv')]
     else:
         st.error(f"Site '{site}' non valide pour la modification."); return
+        
     agency_id_str, found_and_modified = str(agency_id), False
+    
     for path, filename in files_to_check:
         try:
             ftp.cwd("/")
             if path != "/": ftp.cwd(path)
+            
             r = io.BytesIO()
             ftp.retrbinary(f'RETR {filename}', r.write)
             r.seek(0)
+            
             if r.getbuffer().nbytes == 0: continue
+            
             lines = [line.strip() for line in r.getvalue().decode('utf-8', errors='ignore').splitlines() if line.strip()]
             new_lines = []
             file_was_modified = False
+            
             for line in lines:
                 if line.startswith(agency_id_str + ','):
                     parts = line.split(',')
                     if len(parts) >= 5:
+                        # Reconstitution de la ligne avec le nouveau mode
                         new_line = f"{parts[0]},{parts[1]},{parts[2]},{parts[3]},{new_contact_mode}"
                         new_lines.append(new_line)
                         file_was_modified = True
@@ -151,36 +209,59 @@ def modifier_client(ftp, agency_id, site, new_contact_mode):
                         new_lines.append(line)
                 else:
                     new_lines.append(line)
+            
             if file_was_modified:
                 new_content = "\n".join(new_lines)
                 content_io = io.BytesIO(new_content.encode('utf-8'))
+                
                 ftp.cwd("/")
                 if path != "/": ftp.cwd(path)
                 ftp.storbinary(f'STOR {filename}', content_io)
                 st.info(f"ID {agency_id_str} modifié dans {path}/{filename}")
         except Exception: pass
+        
     if not found_and_modified: st.warning(f"L'ID d'agence {agency_id_str} n'a pas été trouvé pour modification dans les fichiers du site '{site}'.")
 
 def verifier_client(ftp, agency_id):
     st.info(f"Recherche globale de l'ID d'agence : {agency_id}...")
     results_figaro = check_id_for_site(ftp, agency_id, 'figaro')
     results_proprietes = check_id_for_site(ftp, agency_id, 'proprietes')
+    
     all_results = results_figaro + results_proprietes
+    
     if all_results:
-        st.success(f"L'ID d'agence '{agency_id}' est déjà paramétré :")
+        st.success(f"L'ID d'agence '{agency_id}' est présent :")
         for file_path, mode in all_results:
             mode_text = "Email Agence (0)" if mode == '0' else "Email Négociateur (1)" if mode == '1' else f"Valeur inconnue ({mode})"
             st.write(f"- Dans **{file_path}** avec le mode : **{mode_text}**")
+            
+        # Petite analyse de cohérence pour l'utilisateur
+        check_coherence(results_figaro, "Figaro Immobilier")
+        check_coherence(results_proprietes, "Propriétés Le Figaro")
     else:
         st.info(f"L'ID d'agence '{agency_id}' n'a été trouvé dans aucun fichier.")
+
+def check_coherence(results, site_name):
+    """Aide visuelle pour dire si c'est cohérent ou non"""
+    if not results: return
+    has_global = any("All/" in path for path, _ in results)
+    has_split = any(path.startswith("/apimo") for path, _ in results)
+    
+    if has_global and has_split:
+        st.caption(f"✅ Configuration {site_name} cohérente (Présent Global + Split).")
+    elif has_global and not has_split:
+        st.error(f"⚠️ Configuration {site_name} INCOMPLÈTE : Présent dans Global mais manquant dans les fichiers scindés.")
+    elif not has_global and has_split:
+        st.error(f"⚠️ Configuration {site_name} INCOMPLÈTE : Présent dans un fichier scindé mais manquant dans Global.")
 
 
 # --- INTERFACE UTILISATEUR AVEC STREAMLIT ---
 st.title("Outil de gestion des flux Apimo")
+
 col1, col2 = st.columns(2)
 with col1:
     action = st.radio("Choisissez une action :", ('Ajouter', 'Supprimer', 'Vérifier', 'Modifier'))
-    agency_id_input = st.text_input("Agency ID :") # MODIFIÉ
+    agency_id_input = st.text_input("Agency ID :")
     ftp_password = st.text_input("Mot de passe FTP :", type="password")
 with col2:
     site_choice = st.radio("Site(s) concerné(s) :", ('Figaro Immobilier', 'Propriétés Le Figaro', 'Les deux'))
@@ -188,7 +269,7 @@ with col2:
     contact_mode = st.selectbox("Mode de contact :", options=list(contact_mode_options.keys()), help="Pour l'ajout ou la modification, définit la nouvelle valeur.")
 
 if st.button("Exécuter"):
-    agency_id = agency_id_input.strip() # AJOUTÉ: Nettoie les espaces avant et après
+    agency_id = agency_id_input.strip()
     if not agency_id or not ftp_password:
         st.error("L'Agency ID et le Mot de passe sont obligatoires.")
     else:
@@ -210,26 +291,42 @@ if st.button("Exécuter"):
                 elif site_choice == 'Les deux': sites_to_process.extend(['figaro', 'proprietes'])
                 
                 with st.spinner(f"Opération '{action}' en cours..."):
-                    if action in ['Ajouter', 'Supprimer', 'Modifier']:
+                    if action == 'Ajouter':
+                        # NOUVELLE LOGIQUE D'AJOUT INTELLIGENT
                         for site_code in sites_to_process:
                             display_name = site_display_names.get(site_code, site_code.upper())
                             st.subheader(f"Traitement pour le site : {display_name}")
                             
-                            if action == 'Ajouter':
-                                existing_results = check_id_for_site(ftp, agency_id, site_code)
-                                if existing_results:
-                                    st.warning(f"L'ID {agency_id} existe déjà pour le site '{display_name}'. Ajout ignoré.")
-                                    for file_path, mode in existing_results:
-                                        mode_text = "Email Agence (0)" if mode == '0' else "Email Négociateur (1)" if mode == '1' else f"Valeur inconnue ({mode})"
-                                        st.write(f"- Trouvé dans **{file_path}** avec le mode : **{mode_text}**")
-                                    continue
-                                ajouter_client(ftp, agency_id, site_code, contact_mode_options[contact_mode])
+                            existing_results = check_id_for_site(ftp, agency_id, site_code)
                             
-                            elif action == 'Supprimer':
-                                supprimer_client(ftp, agency_id, site_code)
+                            # Analyse de la présence
+                            is_in_global = any("All/" in r[0] for r in existing_results)
+                            is_in_split = any(r[0].startswith("/apimo") for r in existing_results)
+                            
+                            if is_in_global and is_in_split:
+                                st.warning(f"L'ID {agency_id} est déjà correctement configuré pour {display_name} (Global + Split). Aucune action requise.")
+                                continue
                                 
-                            elif action == 'Modifier':
-                                modifier_client(ftp, agency_id, site_code, contact_mode_options[contact_mode])
+                            # On détermine où il faut ajouter
+                            do_global = not is_in_global
+                            do_split = not is_in_split
+                            
+                            if is_in_global:
+                                st.warning(f"ID déjà présent dans le fichier Global pour {display_name}.")
+                            if is_in_split:
+                                st.warning(f"ID déjà présent dans un fichier Scindé pour {display_name}.")
+                                
+                            ajouter_client(ftp, agency_id, site_code, contact_mode_options[contact_mode], add_to_global=do_global, add_to_split=do_split)
+
+                    elif action == 'Supprimer':
+                        for site_code in sites_to_process:
+                            st.subheader(f"Suppression pour : {site_display_names.get(site_code)}")
+                            supprimer_client(ftp, agency_id, site_code)
+                            
+                    elif action == 'Modifier':
+                        for site_code in sites_to_process:
+                            st.subheader(f"Modification pour : {site_display_names.get(site_code)}")
+                            modifier_client(ftp, agency_id, site_code, contact_mode_options[contact_mode])
 
                     elif action == 'Vérifier':
                         verifier_client(ftp, agency_id)
@@ -240,7 +337,7 @@ if st.button("Exécuter"):
             st.code(traceback.format_exc())
         finally:
             if ftp:
-                ftp.quit()
+                try: ftp.quit()
+                except: pass
 
 st.markdown(f"<div style='text-align: center; color: grey; font-size: 0.8em;'>Version {APP_VERSION}</div>", unsafe_allow_html=True)
-
