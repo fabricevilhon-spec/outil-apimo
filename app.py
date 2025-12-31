@@ -7,7 +7,7 @@ import traceback
 import pandas as pd # Import conservé pour compatibilité
 
 # --- CONFIGURATION ET NUMÉRO DE VERSION ---
-APP_VERSION = "v1.6.3" # Correction syntaxe ligne 82 (try/except)
+APP_VERSION = "v1.6.4" # Correction du bug de détection (double slash //)
 FTP_HOST = "ftp.figarocms.fr"
 FTP_USER = "apimo-auto-fab"
 
@@ -53,7 +53,14 @@ def check_id_for_site(ftp, agency_id, site):
                 if line.strip().startswith(agency_id_str + ','):
                     parts = line.strip().split(',')
                     contact_mode = parts[-1] if len(parts) >= 5 else '?'
-                    found_results.append((f"{path}/{filename}", contact_mode))
+                    
+                    # CORRECTION DU CHEMIN D'AFFICHAGE (évite le //apimo...)
+                    if path == "/":
+                        clean_path = f"/{filename}"
+                    else:
+                        clean_path = f"{path}/{filename}"
+                        
+                    found_results.append((clean_path, contact_mode))
                     break 
         except Exception:
             pass 
@@ -84,7 +91,6 @@ def ajouter_client(ftp, agency_id, site, contact_mode, add_to_global=True, add_t
             ftp.cwd(ftp_path)
         lines = []
         
-        # C'est ici que l'erreur se produisait probablement (ligne 82 environ)
         try:
             content_in_memory = io.BytesIO()
             ftp.retrbinary(f'RETR {ftp_filename}', content_in_memory.write)
@@ -274,8 +280,11 @@ def verifier_client(ftp, agency_id):
 
 def check_coherence(results, site_name):
     if not results: return
+    # "All/" est présent dans le chemin des fichiers globaux
     has_global = any("All/" in path for path, _ in results)
-    has_split = any(path.startswith("/apimo") for path, _ in results)
+    
+    # Tout fichier qui ne contient PAS "All/" est forcément un fichier scindé
+    has_split = any("All/" not in path for path, _ in results)
     
     if has_global and has_split:
         st.caption(f"✅ Configuration {site_name} cohérente (Présent Global + Split).")
@@ -329,8 +338,9 @@ if st.button("Exécuter"):
                             
                             existing_results = check_id_for_site(ftp, agency_id, site_code)
                             
+                            # Analyse plus robuste
                             is_in_global = any("All/" in r[0] for r in existing_results)
-                            is_in_split = any(r[0].startswith("/apimo") for r in existing_results)
+                            is_in_split = any("All/" not in r[0] for r in existing_results)
                             
                             if is_in_global and is_in_split:
                                 st.warning(f"ID {agency_id} déjà configuré pour {display_name} (Global + Split).")
