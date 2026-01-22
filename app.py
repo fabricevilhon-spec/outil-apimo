@@ -10,11 +10,18 @@ from requests.auth import HTTPBasicAuth
 import pandas as pd # Import conservé pour compatibilité
 
 # --- CONFIGURATION ET NUMÉRO DE VERSION ---
-APP_VERSION = "v1.9.0" # Séparation stricte : Vérif FTP vs Vérif API
+APP_VERSION = "v1.9.1" # Ajout Headers (User-Agent) + Affichage IP pour débogage
 FTP_HOST = "ftp.figarocms.fr"
 FTP_USER = "apimo-auto-fab"
 
 # --- FONCTIONS TECHNIQUES ---
+
+def get_current_ip():
+    """Récupère l'IP publique du serveur pour débogage whitelisting"""
+    try:
+        return requests.get('https://api.ipify.org', timeout=3).text
+    except:
+        return "Inconnue"
 
 def connect_ftp(host, user, password):
     try:
@@ -28,8 +35,7 @@ def connect_ftp(host, user, password):
 
 def check_apimo_api(agency_id, site_choice, api_password):
     """
-    Interroge uniquement l'API Apimo.
-    Retourne : (Booléen Succès, Message Utilisateur, Données JSON ou None)
+    Interroge l'API Apimo avec des headers navigateur pour éviter les blocages WAF.
     """
     if not api_password:
         return None, "Mot de passe API non fourni.", None
@@ -40,14 +46,19 @@ def check_apimo_api(agency_id, site_choice, api_password):
     elif site_choice == 'Propriétés Le Figaro':
         api_user = '421'
     else:
-        # Par défaut si "Les deux" est coché, on teste avec le 694
         api_user = '694' 
 
     url = f"https://api.apimo.pro/agencies/{agency_id}/properties"
     
+    # AJOUT DES HEADERS POUR IMITER UN NAVIGATEUR (Contourne erreur 401/403 liée aux bots)
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+        'Accept': 'application/json'
+    }
+
     try:
-        # Requête GET avec Basic Auth
-        response = requests.get(url, auth=HTTPBasicAuth(api_user, api_password), timeout=10)
+        # Requête GET avec Basic Auth ET Headers
+        response = requests.get(url, auth=HTTPBasicAuth(api_user, api_password), headers=headers, timeout=10)
         
         if response.status_code == 200:
             try:
@@ -61,10 +72,10 @@ def check_apimo_api(agency_id, site_choice, api_password):
             return False, f"Agence introuvable côté Apimo (L'ID {agency_id} n'existe pas).", None
 
         elif response.status_code == 403:
-            return False, "Accès refusé par Apimo (403). L'agence est probablement inactive.", None
+            return False, "Accès refusé par Apimo (403). L'agence est inactive ou votre IP est bloquée.", None
 
         elif response.status_code == 401:
-            return False, f"Échec d'authentification (401). Vérifiez le mot de passe API pour l'utilisateur '{api_user}'.", None
+            return False, f"Échec d'authentification (401) pour l'utilisateur '{api_user}'.", None
 
         else:
             return False, f"Erreur technique API (Code {response.status_code}).", None
@@ -337,7 +348,14 @@ if st.button("Exécuter"):
             if not api_password:
                 st.error("Le mot de passe API est obligatoire pour cette action.")
             else:
-                st.subheader("📡 Statut API Apimo")
+                # Récupération et affichage IP pour débogage whitelisting
+                current_ip = get_current_ip()
+                st.caption(f"ℹ️ Info technique : IP du serveur effectuant la requête : {current_ip}")
+                
+                # Détermination du login utilisé pour affichage
+                login_used = '421' if site_choice == 'Propriétés Le Figaro' else '694'
+                st.subheader(f"📡 Statut API Apimo (Login {login_used})")
+                
                 clean_api_pass = api_password.strip() # On nettoie le mot de passe
                 with st.spinner("Interrogation de l'API Apimo en cours..."):
                     is_active, message, json_data = check_apimo_api(agency_id, site_choice, clean_api_pass)
