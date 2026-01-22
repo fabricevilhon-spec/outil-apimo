@@ -300,7 +300,7 @@ st.title("Outil de gestion des flux Apimo")
 
 col1, col2 = st.columns(2)
 with col1:
-    action = st.radio("Action :", ('Ajouter', 'Supprimer', 'Vérifier', 'Modifier'))
+    action = st.radio("Action :", ('Ajouter ID', 'Supprimer ID', 'Vérifier Paramétrage interne', 'Modifier mode de contact'))
     agency_id_input = st.text_input("Agency ID :")
     ftp_password = st.text_input("Mot de passe FTP :", type="password")
 with col2:
@@ -331,7 +331,7 @@ if st.button("Exécuter"):
                 elif site_choice == 'Les deux': sites_to_process.extend(['figaro', 'proprietes'])
                 
                 with st.spinner(f"Opération '{action}' en cours..."):
-                    if action == 'Ajouter':
+                    if action == 'Ajouter ID':
                         for site_code in sites_to_process:
                             display_name = site_display_names.get(site_code, site_code.upper())
                             st.subheader(f"Traitement pour le site : {display_name}")
@@ -356,17 +356,17 @@ if st.button("Exécuter"):
                                 
                             ajouter_client(ftp, agency_id, site_code, contact_mode_options[contact_mode], add_to_global=do_global, add_to_split=do_split)
 
-                    elif action == 'Supprimer':
+                    elif action == 'Supprimer ID':
                         for site_code in sites_to_process:
                             st.subheader(f"Suppression : {site_display_names.get(site_code)}")
                             supprimer_client(ftp, agency_id, site_code)
                             
-                    elif action == 'Modifier':
+                    elif action == 'Modifier mode de contact':
                         for site_code in sites_to_process:
                             st.subheader(f"Modification : {site_display_names.get(site_code)}")
                             modifier_client(ftp, agency_id, site_code, contact_mode_options[contact_mode])
 
-                    elif action == 'Vérifier':
+                    elif action == 'Vérifier Paramétrage interne':
                         verifier_client(ftp, agency_id)
                         
                 st.success("Opération terminée.")
