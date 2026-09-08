@@ -10,12 +10,11 @@ import pandas as pd # Import conservé pour compatibilité future
 APP_VERSION = "v2.0.0" # Fichiers scindés uniquement, retrait de la clé API, nouveau chemin FTP
 FTP_HOST = "ftp.figarocms.fr"
 FTP_USER = "apimo-auto-fab"
-FTP_CONFIG_PATH = "/data/ftp/forge/apimoV3/CONFIG"
+FTP_CONFIG_PATH = "/" # Le compte FTP est chrooté sur /data/ftp/forge/apimoV3/CONFIG
 
 # --- FONCTIONS TECHNIQUES FTP ---
 
 def connect_ftp(host, user, password):
-    # RETOUR À LA FONCTION ORIGINALE
     try:
         ftp = ftplib.FTP_TLS(host, timeout=60)
         ftp.sendcmd('USER ' + user)
@@ -53,7 +52,7 @@ def check_id_for_site(ftp, agency_id, site):
                 if line.strip().startswith(agency_id_str + ','):
                     parts = line.strip().split(',')
                     contact_mode = parts[-1] if len(parts) >= 4 else '?'
-                    found_results.append((f"{FTP_CONFIG_PATH}/{filename}", contact_mode))
+                    found_results.append((f"/{filename}", contact_mode))
                     break
         except Exception: pass
 
@@ -86,7 +85,7 @@ def ajouter_client(ftp, agency_id, site, contact_mode):
         content_to_upload = io.BytesIO(new_content.encode('utf-8'))
         ftp.cwd(FTP_CONFIG_PATH)
         ftp.storbinary(f'STOR {ftp_filename}', content_to_upload)
-        st.info(f"Fichier mis à jour : {FTP_CONFIG_PATH}/{ftp_filename}")
+        st.info(f"Fichier mis à jour : /{ftp_filename}")
 
     st.write(f"Analyse des fichiers scindés ({prefix}...) pour le site '{site}'...")
     ftp.cwd(FTP_CONFIG_PATH)
@@ -149,7 +148,7 @@ def supprimer_client(ftp, agency_id, site):
                 content_io = io.BytesIO(new_content.encode('utf-8'))
                 ftp.cwd(FTP_CONFIG_PATH)
                 ftp.storbinary(f'STOR {filename}', content_io)
-                st.info(f"ID {agency_id_str} supprimé dans {FTP_CONFIG_PATH}/{filename}")
+                st.info(f"ID {agency_id_str} supprimé dans /{filename}")
         except Exception: pass
     if not found: st.warning(f"L'ID d'agence {agency_id_str} n'a été trouvé dans aucun fichier du site '{site}'.")
 
@@ -185,7 +184,7 @@ def modifier_client(ftp, agency_id, site, new_contact_mode):
                 content_io = io.BytesIO(new_content.encode('utf-8'))
                 ftp.cwd(FTP_CONFIG_PATH)
                 ftp.storbinary(f'STOR {filename}', content_io)
-                st.info(f"ID {agency_id_str} modifié dans {FTP_CONFIG_PATH}/{filename}")
+                st.info(f"ID {agency_id_str} modifié dans /{filename}")
         except Exception: pass
     if not found_and_modified: st.warning(f"L'ID d'agence {agency_id_str} n'a pas été trouvé pour modification dans les fichiers du site '{site}'.")
 
@@ -237,7 +236,7 @@ if st.button("Exécuter"):
                 ftp = connect_ftp(FTP_HOST, FTP_USER, ftp_password)
             if ftp:
                 st.success("Connexion FTP réussie.")
-                
+
                 site_display_names = {'figaro': 'Figaro Immobilier', 'proprietes': 'Propriétés Le Figaro'}
                 sites_to_process = []
                 if site_choice == 'Figaro Immobilier': sites_to_process.append('figaro')

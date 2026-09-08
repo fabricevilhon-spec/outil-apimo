@@ -11,7 +11,7 @@ Application Streamlit permettant de gérer les fichiers CSV de configuration des
 
 ## Sites gérés
 
-Tous les fichiers sont situés dans `/data/ftp/forge/apimoV3/CONFIG` sur le serveur FTP.
+Le compte FTP (`apimo-auto-fab`) est chrooté sur `/data/ftp/forge/apimoV3/CONFIG` : depuis la session FTP, ce dossier apparaît directement comme la racine (`/`), et c'est là que se trouvent tous les fichiers.
 
 | Site | Fichiers scindés |
 |---|---|
