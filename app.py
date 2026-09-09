@@ -10,7 +10,7 @@ import pandas as pd # Import conservé pour compatibilité future
 APP_VERSION = "v2.0.0" # Fichiers scindés uniquement, retrait de la clé API, nouveau chemin FTP
 FTP_HOST = "ftp.figarocms.fr"
 FTP_USER = "apimo-auto-fab"
-FTP_CONFIG_PATH = "/" # Le compte FTP est chrooté sur /data/ftp/forge/apimoV3/CONFIG
+FTP_CONFIG_PATH = "/" # Le compte FTP est chrooté sur /data/ftp/talend/immo/apimo/CONFIG
 
 # --- FONCTIONS TECHNIQUES FTP ---
 
@@ -236,6 +236,12 @@ if st.button("Exécuter"):
                 ftp = connect_ftp(FTP_HOST, FTP_USER, ftp_password)
             if ftp:
                 st.success("Connexion FTP réussie.")
+
+                # --- DIAGNOSTIC TEMPORAIRE : à retirer une fois le problème de permissions résolu ---
+                listing = []
+                ftp.retrlines('LIST', listing.append)
+                st.code("\n".join(listing) or "(dossier vide)")
+                # --- FIN DIAGNOSTIC TEMPORAIRE ---
 
                 site_display_names = {'figaro': 'Figaro Immobilier', 'proprietes': 'Propriétés Le Figaro'}
                 sites_to_process = []
