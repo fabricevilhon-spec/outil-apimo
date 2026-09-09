@@ -237,12 +237,6 @@ if st.button("Exécuter"):
             if ftp:
                 st.success("Connexion FTP réussie.")
 
-                # --- DIAGNOSTIC TEMPORAIRE : à retirer une fois le problème de permissions résolu ---
-                listing = []
-                ftp.retrlines('LIST', listing.append)
-                st.code("\n".join(listing) or "(dossier vide)")
-                # --- FIN DIAGNOSTIC TEMPORAIRE ---
-
                 site_display_names = {'figaro': 'Figaro Immobilier', 'proprietes': 'Propriétés Le Figaro'}
                 sites_to_process = []
                 if site_choice == 'Figaro Immobilier': sites_to_process.append('figaro')
